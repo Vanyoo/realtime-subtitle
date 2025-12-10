@@ -7,7 +7,7 @@ import time
 class AudioCapture:
     def __init__(self, device_index=None, sample_rate=16000, chunk_duration=0.1, 
                  silence_threshold=0.01, silence_duration=1.0, max_phrase_duration=5.0,
-                 streaming_mode=False, streaming_interval=1.5, streaming_overlap=0.3):
+                 streaming_mode=False, streaming_interval=1.5, streaming_step_size=0.2, streaming_overlap=0.3):
         """
         Captures audio and yields segments containing speech.
         
@@ -32,6 +32,9 @@ class AudioCapture:
         # Streaming mode settings
         self.streaming_mode = streaming_mode
         self.streaming_interval = streaming_interval
+        self.streaming_mode = streaming_mode
+        self.streaming_interval = streaming_interval
+        self.streaming_step_size = streaming_step_size
         self.streaming_overlap = streaming_overlap
         
         self.audio_queue = queue.Queue()
@@ -74,6 +77,26 @@ class AudioCapture:
         if self.thread:
             self.thread.join()
         print("Audio capture stopped.")
+
+    def generator(self):
+        """Yields small raw audio chunks for external accumulation logic."""
+        if self.device_index is None:
+             # Just safety check, usually handled in start()
+             pass
+             
+        # Use configured step size
+        block_size = int(self.sample_rate * self.streaming_step_size)
+        print(f"[Audio] Starting raw processing stream (step={self.streaming_step_size}s)")
+        
+        with sd.InputStream(device=self.device_index, channels=1, samplerate=self.sample_rate, 
+                            blocksize=block_size, dtype='float32') as stream:
+             self.running = True
+             while self.running:
+                 data, overflow = stream.read(block_size)
+                 if overflow:
+                     print("Audio overflow")
+                 yield data.flatten()
+        print("[Audio] Generator stopped.")
 
     def get_audio_stream(self):
         """Generator that yields numpy arrays of float32 audio containing speech."""

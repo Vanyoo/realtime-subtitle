@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QTextEdit, QVBoxLayout, QGra
                              QSizeGrip, QHBoxLayout, QScrollArea, QLabel, QFrame)
 from PyQt6.QtCore import Qt, QPoint, QTimer
 from PyQt6.QtGui import QFont, QColor, QPalette
+from settings_window import SettingsWindow
 from ctypes import c_void_p
 import time
 
@@ -40,6 +41,79 @@ class LogItem(QFrame):
         
     def update_translated(self, text):
         self.translated_label.setText(text)
+
+    def update_original(self, text):
+        self.original_label.setText(f"[{time.strftime('%H:%M:%S')}] {text}")
+
+class OverlayWindow(QWidget):
+    def __init__(self, display_duration=None, window_width=400, window_height=None):
+        super().__init__()
+        # display_duration is not really used in log mode, but kept for compatibility
+        self.window_width = window_width
+        
+        # Default height to full screen height if not specified
+        screen_geometry = QApplication.primaryScreen().availableGeometry()
+        self.window_height = window_height if window_height else screen_geometry.height()
+        
+        self.initUI()
+        self.oldPos = self.pos()
+
+    def showEvent(self, event):
+        """Called when window is shown - set all-spaces behavior here"""
+        super().showEvent(event)
+        if HAS_APPKIT:
+            self._set_all_spaces()
+    
+    def _set_all_spaces(self):
+        """Make window appear on all macOS Spaces/Desktops"""
+        try:
+            # Get the native NSWindow from Qt's winId
+            win_id = int(self.winId())
+            ns_view = objc.objc_object(c_void_p=c_void_p(win_id))
+            ns_window = ns_view.window()
+            ns_window.setCollectionBehavior_(
+                NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorStationary
+            )
+            print("Window set to appear on all Spaces")
+        except Exception as e:
+            print(f"Could not set all-spaces behavior: {e}")
+
+    def initUI(self):
+        # Window flags for transparency and staying on top
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint | 
+            Qt.WindowType.WindowStaysOnTopHint | 
+            Qt.WindowType.WindowDoesNotAcceptFocus
+        )
+class ResizeHandle(QLabel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent_window = parent
+        self.setText("◢")
+        self.setStyleSheet("color: rgba(255, 255, 255, 100); font-size: 16px;")
+        self.setFixedSize(20, 20)
+        self.setAlignment(Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
+        self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        
+        self.startPos = None
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.startPos = event.globalPosition().toPoint()
+            event.accept()
+            
+    def mouseMoveEvent(self, event):
+        if self.startPos:
+            delta = event.globalPosition().toPoint() - self.startPos
+            new_width = max(self.parent_window.minimumWidth(), self.parent_window.width() + delta.x())
+            new_height = max(self.parent_window.minimumHeight(), self.parent_window.height() + delta.y())
+            
+            self.parent_window.resize(new_width, new_height)
+            self.startPos = event.globalPosition().toPoint()
+            event.accept()
+            
+    def mouseReleaseEvent(self, event):
+        self.startPos = None
 
 class OverlayWindow(QWidget):
     def __init__(self, display_duration=None, window_width=400, window_height=None):
@@ -137,13 +211,29 @@ class OverlayWindow(QWidget):
         
         grip_layout.addWidget(self.save_btn)
         
+        # Settings Button
+        self.settings_btn = QPushButton("⚙️")
+        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_btn.setFixedSize(30, 30)
+        self.settings_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 50);
+                color: white;
+                border-radius: 15px;
+                border: none;
+                font-size: 16px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 100);
+            }
+        """)
+        self.settings_btn.clicked.connect(self._open_settings)
+        grip_layout.addWidget(self.settings_btn)
+        
         grip_layout.addStretch()
         
         # Visual Grip Indicator
-        self.grip_label = QLabel("◢")
-        self.grip_label.setStyleSheet("color: rgba(255, 255, 255, 100); font-size: 16px;")
-        self.grip_label.setFixedSize(20, 20)
-        self.grip_label.setAlignment(Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
+        self.grip_label = ResizeHandle(self)
         grip_layout.addWidget(self.grip_label)
         
         layout.addLayout(grip_layout)
@@ -164,9 +254,7 @@ class OverlayWindow(QWidget):
         self.transcript_data = {} # chunk_id -> {timestamp, original, translated}
         
         # State
-        self.is_resizing = False
         self.is_moving = False
-        self.resize_margin = 20
         
         # Enable mouse tracking for cursor update without click
         self.setMouseTracking(True)
@@ -195,9 +283,13 @@ class OverlayWindow(QWidget):
         
         if existing_widget:
             # Update existing
+            if original_text:
+                existing_widget.update_original(original_text)
+            
             if translated_text:
                 existing_widget.update_translated(translated_text)
-                print(f"[Overlay] Updated existing widget #{chunk_id}")
+                
+            print(f"[Overlay] Updated existing widget #{chunk_id}")
         else:
             # Insert new widget in order
             timestamp = self.transcript_data[chunk_id]['timestamp']
@@ -251,46 +343,31 @@ class OverlayWindow(QWidget):
         except Exception as e:
             print(f"[Overlay] Error saving transcript: {e}")
 
-    # Manual Resize Logic
+    def _open_settings(self):
+        """Open the settings window"""
+        if not hasattr(self, 'settings_window') or not self.settings_window.isVisible():
+            self.settings_window = SettingsWindow()
+            self.settings_window.show()
+            self.settings_window.raise_()
+            self.settings_window.activateWindow()
+
+    # Window Moving Logic (Resize is handled by ResizeHandle widget)
     def mousePressEvent(self, event):
-        pos = event.position().toPoint()
-        rect = self.rect()
-        # Check bottom-right corner for resize
-        if (pos.x() > rect.width() - self.resize_margin and 
-            pos.y() > rect.height() - self.resize_margin):
-            self.is_resizing = True
-            self.oldPos = event.globalPosition().toPoint()
-        else:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.is_moving = True
             self.oldPos = event.globalPosition().toPoint()
 
     def mouseMoveEvent(self, event):
-        pos = event.position().toPoint()
-        rect = self.rect()
-        
-        # Update cursor shape based on position
-        if not self.is_resizing and not self.is_moving:
-            if (pos.x() > rect.width() - self.resize_margin and 
-                pos.y() > rect.height() - self.resize_margin):
-                self.setCursor(Qt.CursorShape.SizeFDiagCursor)
-            else:
-                self.setCursor(Qt.CursorShape.ArrowCursor)
+        # Update cursor shape based on position (reset to arrow)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         
         # Handle dragging
-        if self.is_resizing:
-            delta = event.globalPosition().toPoint() - self.oldPos
-            new_width = max(self.minimumWidth(), self.width() + delta.x())
-            new_height = max(self.minimumHeight(), self.height() + delta.y())
-            self.resize(new_width, new_height)
-            self.oldPos = event.globalPosition().toPoint()
-            
-        elif self.is_moving:
+        if self.is_moving:
             delta = event.globalPosition().toPoint() - self.oldPos
             self.move(self.x() + delta.x(), self.y() + delta.y())
             self.oldPos = event.globalPosition().toPoint()
             
     def mouseReleaseEvent(self, event):
-        self.is_resizing = False
         self.is_moving = False
         self.setCursor(Qt.CursorShape.ArrowCursor)
 

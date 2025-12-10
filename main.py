@@ -38,6 +38,7 @@ class Pipeline(QObject):
             max_phrase_duration=config.max_phrase_duration,
             streaming_mode=config.streaming_mode,
             streaming_interval=config.streaming_interval,
+            streaming_step_size=config.streaming_step_size,
             streaming_overlap=config.streaming_overlap
         )
         
@@ -99,103 +100,105 @@ class Pipeline(QObject):
                 language=config.source_language
             )
             transcribers.append(t)
+        """Accumulating Buffer Processing Loop (Word-by-Word Streaming)"""
+        print("[Pipeline] processing loop started (Accumulating Mode).")
         
-        # Thread pool for parallel transcription AND translation
-        transcribe_executor = ThreadPoolExecutor(max_workers=num_transcription_workers)
+        import numpy as np
+        
+        # Executors
+        transcribe_executor = ThreadPoolExecutor(max_workers=1) # Serial transcription
         translate_executor = ThreadPoolExecutor(max_workers=2)
         
-        pending_transcriptions = []  # List of (chunk_id, future) tuples
-        pending_translations = []    # List of (chunk_id, future) tuples
-        chunk_id = 0
-        transcriber_index = 0
+        # State
+        buffer = np.array([], dtype=np.float32)
+        chunk_id = 1
+        last_update_time = time.time()
+        phrase_start_time = time.time()
         
-        for audio_chunk in self.audio.get_audio_stream():
-            if not self.running:
-                break
-            
-            chunk_id += 1
-            
-            # Round-robin assign to transcribers
-            current_transcriber = transcribers[transcriber_index % len(transcribers)]
-            transcriber_index += 1
-            
-            # Submit transcription asynchronously
-            print(f"[Chunk {chunk_id}] Submitting to Whisper worker {transcriber_index % len(transcribers)}...")
-            future = transcribe_executor.submit(
-                self._transcribe_chunk, current_transcriber, audio_chunk, chunk_id
-            )
-            pending_transcriptions.append((chunk_id, future))
-            
-            # DRAIN QUEUE: If we have too many pending tasks, we are falling behind.
-            # Skip old chunks to catch up.
-            if len(pending_transcriptions) > 10:
-                print(f"[Pipeline] WARNING: Falling behind! Dropping {len(pending_transcriptions) - 5} old chunks.")
-                # Cancel futures if possible (though distinct from cancelling running items)
-                # Just drop them from our list to stop tracking
-                pending_transcriptions = pending_transcriptions[-5:]
-            
-            # Collect and process completed transcriptions
-            still_pending = []
-            for cid, fut in pending_transcriptions:
-                if fut.done():
-                    try:
-                        text = fut.result()
-                        if text:
-                            # EMIT IMMEDIATE TRANSCRIPTION (Async Display)
-                            self.signals.update_text.emit(cid, text, "")
-                            print(f"[Chunk {cid}] Emitted partial: {text}")
+        # Generator yielding small chunks (e.g. 0.2s)
+        audio_gen = self.audio.generator()
 
-                            # Submit for translation immediately
-                            trans_future = translate_executor.submit(
-                                self._translate_and_log, text, cid
-                            )
-                            pending_translations.append((cid, trans_future))
-                    except Exception as e:
-                        print(f"[Chunk {cid}] Transcription error: {e}")
-                else:
-                    still_pending.append((cid, fut))
-            pending_transcriptions = still_pending
-            
-            # Collect and emit completed translations
-            still_pending_trans = []
-            for cid, fut in pending_translations:
-                if fut.done():
-                    try:
-                        # Unpack tuple (original, translated)
-                        result = fut.result()
-                        if result:
-                            original, translated = result
-                            # EMIT FULL UPDATE
-                            self.signals.update_text.emit(cid, original, translated)
-                            print(f"[Chunk {cid}] Emitted final: {original} -> {translated}")
-                    except Exception as e:
-                        print(f"[Chunk {cid}] Translation error: {e}")
-                else:
-                    still_pending_trans.append((cid, fut))
-            pending_translations = still_pending_trans
-        
-        # Wait for remaining work
-        print("[Pipeline] Waiting for remaining transcriptions...")
-        for cid, fut in pending_transcriptions:
-            try:
-                text = fut.result(timeout=10)
-                if text and text.strip():
-                    translated = self.translator.translate(text)
-                    self.signals.update_text.emit(cid, text, translated)
-            except:
+        try:
+            for audio_chunk in audio_gen:
+                if not self.running:
+                    break
+                buffer = np.concatenate([buffer, audio_chunk])
+                now = time.time()
+                buffer_duration = len(buffer) / self.audio.sample_rate
+                
+                # Check silence for finalization
+                # Check last 0.5s for silence
+                is_silence = False
+                if buffer_duration > 0.5:
+                    tail = buffer[-int(self.audio.sample_rate*0.5):]
+                    rms = np.sqrt(np.mean(tail**2))
+                    if rms < self.audio.silence_threshold:
+                        is_silence = True
+                
+                # DECISION: Finalize vs Partial Update
+                
+                # 1. Finalize if: Long enough AND silence OR Max duration reached
+                should_finalize = (
+                    (is_silence and buffer_duration > 1.5) or 
+                    (buffer_duration > self.audio.max_phrase_duration)
+                )
+                
+                if should_finalize and buffer_duration > 0.5:
+                    # FINALIZE
+                    final_buffer = buffer.copy()
+                    cid = chunk_id
+                    
+                    # Submit Final Task
+                    transcribe_executor.submit(self._process_final_chunk, final_buffer, cid)
+                    
+                    # Reset
+                    buffer = np.array([], dtype=np.float32)
+                    chunk_id += 1
+                    phrase_start_time = now
+                    last_update_time = now
+                    
+                # 2. Partial Update if: Interval passed AND not finalizing
+                elif now - last_update_time > config.update_interval and buffer_duration > 0.5:
+                    # PARTIAL UPDATE
+                    partial_buffer = buffer.copy()
+                    transcribe_executor.submit(self._process_partial_chunk, partial_buffer, chunk_id)
+                    last_update_time = now
+                    
+        except Exception as e:
+            print(f"[Pipeline] Error in loop: {e}")
+        finally:
+            transcribe_executor.shutdown(wait=False)
+            translate_executor.shutdown(wait=False)
+
+    def _process_partial_chunk(self, audio_data, chunk_id):
+        """Transcribe and update UI (No translation)"""
+        try:
+            # Use lower quality / faster settings for partial?
+            # Actually standard transcribe is fast enough on M3
+            text = self.transcriber.transcribe(audio_data)
+            if text:
+                self.signals.update_text.emit(chunk_id, text, "")
+        except Exception as e:
+            print(f"[Partial {chunk_id}] Error: {e}")
+
+    def _process_final_chunk(self, audio_data, chunk_id):
+        """Transcribe, Log, and Trigger Translation"""
+        try:
+            text = self.transcriber.transcribe(audio_data)
+            if text:
+                print(f"[Final {chunk_id}] Transcribed: {text}")
+                # Emit final transcription first (confirms text)
+                self.signals.update_text.emit(chunk_id, text, "")
+                
+                # Translate
+                translated = self.translator.translate(text)
+                print(f"[Final {chunk_id}] Translated: {translated}")
+                self.signals.update_text.emit(chunk_id, text, translated)
+            else:
+                # If empty, maybe just ignore or clear "..."?
                 pass
-        
-        for cid, fut in pending_translations:
-            try:
-                result = fut.result(timeout=5)
-                if result:
-                    original, translated = result
-                    self.signals.update_text.emit(cid, original, translated)
-            except:
-                pass
-        
-        transcribe_executor.shutdown(wait=False)
-        translate_executor.shutdown(wait=False)
+        except Exception as e:
+            print(f"[Final {chunk_id}] Error: {e}")
     
     def _transcribe_chunk(self, transcriber, audio_chunk, chunk_id):
         """Transcribe a single chunk and log timing"""
@@ -219,12 +222,8 @@ _app = None
 
 def signal_handler(sig, frame):
     """Handle Ctrl-C gracefully"""
-    print("\n[Main] Ctrl-C received, shutting down...")
-    if _pipeline:
-        _pipeline.stop()
-    if _app:
-        _app.quit()
-    sys.exit(0)
+    print("\n[Main] Ctrl-C received, force killing...")
+    os._exit(0)
 
 def main():
     global _pipeline, _app
