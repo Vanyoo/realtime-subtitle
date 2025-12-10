@@ -59,6 +59,9 @@ class Pipeline(QObject):
             api_key=config.api_key,
             model=config.model
         )
+        
+        # Warmup Transcriber (Critical for MLX/GPU)
+        self.transcriber.warmup()
 
     def start(self):
         """Start the processing pipeline in a dedicated thread"""

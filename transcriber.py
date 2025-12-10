@@ -28,6 +28,17 @@ class Transcriber:
             
         return text
 
+    def warmup(self):
+        """Warmup the model to prevent lag on first inference"""
+        print("[Transcriber] Warming up model...")
+        # 1 second of silence
+        dummy_audio = np.zeros(16000, dtype=np.float32)
+        try:
+            self.transcribe(dummy_audio)
+            print("[Transcriber] Warmup complete.")
+        except Exception as e:
+            print(f"[Transcriber] Warmup failed (non-fatal): {e}")
+
     def _is_hallucination(self, text):
         """Check if text looks like a Whisper hallucination (repetitive loop)"""
         if not text:
