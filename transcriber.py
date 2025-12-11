@@ -21,9 +21,15 @@ class Transcriber:
         else:
             text = self._transcribe_faster_whisper(audio_data, prompt)
             
+            
         # Filter hallucinations (infinite loops, e.g. "once once once")
         if self._is_hallucination(text):
             print(f"[Transcriber] Filtered hallucination: {text[:50]}...")
+            return ""
+
+        # Filter prompt echoes (music/noise causing repetition of context)
+        if prompt and self._is_prompt_echo(text, prompt):
+            print(f"[Transcriber] Filtered prompt echo: {text[:50]}...")
             return ""
             
         return text
@@ -74,6 +80,31 @@ class Transcriber:
             if ratio < 0.4: # Filter if less than 40% of words are unique
                 return True
                 
+        return False
+
+    def _is_prompt_echo(self, text, prompt):
+        """Check if the transcribed text is just an echo of the prompt (common hallucination on silence/music)"""
+        if not text or not prompt:
+            return False
+            
+        import re
+        def normalize(s):
+            return re.sub(r'[^\w\s]', '', s.lower()).strip()
+            
+        norm_text = normalize(text)
+        norm_prompt = normalize(prompt)
+        
+        if not norm_text or not norm_prompt:
+            return False
+            
+        # Check for exact match or strong overlap
+        if norm_text == norm_prompt:
+            return True
+            
+        # Check if text is a trailing substring of prompt (e.g. Prompt="Hello world", Text="world")
+        if norm_prompt.endswith(norm_text):
+            return True
+            
         return False
 
     def _transcribe_mlx(self, audio_data, prompt=None):

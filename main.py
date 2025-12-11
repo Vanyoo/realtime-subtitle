@@ -162,8 +162,14 @@ class Pipeline(QObject):
                     # Store current prompt to pass to task (thread safety)
                     prompt = self.last_final_text
                     
-                    # Submit Final Task
-                    transcribe_executor.submit(self._process_final_chunk, final_buffer, cid, prompt)
+                    # PRE-CHECK: Is the entire buffer actually silence?
+                    # (Prevent infinite loop of repeating prompt on empty audio)
+                    overall_rms = np.sqrt(np.mean(final_buffer**2))
+                    if overall_rms < self.audio.silence_threshold:
+                         print(f"[Pipeline] Skipped silent chunk {cid} (RMS={overall_rms:.4f})")
+                    else:
+                        # Submit Final Task
+                        transcribe_executor.submit(self._process_final_chunk, final_buffer, cid, prompt)
                     
                     # Reset
                     buffer = np.array([], dtype=np.float32)
@@ -176,7 +182,12 @@ class Pipeline(QObject):
                     # PARTIAL UPDATE
                     partial_buffer = buffer.copy()
                     prompt = self.last_final_text
-                    transcribe_executor.submit(self._process_partial_chunk, partial_buffer, chunk_id, prompt)
+                    
+                    # RMS Check to avoid partial hallucination on silence
+                    rms = np.sqrt(np.mean(partial_buffer**2))
+                    if rms > self.audio.silence_threshold:
+                        transcribe_executor.submit(self._process_partial_chunk, partial_buffer, chunk_id, prompt)
+                    
                     last_update_time = now
                     
         except Exception as e:
