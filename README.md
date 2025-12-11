@@ -13,6 +13,8 @@ A high-performance real-time speech-to-text and translation application built fo
 ## Demo
 https://github.com/Vanyoo/realtime-subtitle/raw/refs/heads/master/demo/demo%20screenshot.mp4
 
+![Dashboard](./demo/main_dashboard.png)
+
 ## Installation
 
 1. **Prerequisites**:
@@ -33,71 +35,55 @@ https://github.com/Vanyoo/realtime-subtitle/raw/refs/heads/master/demo/demo%20sc
    1. Double-click `install_windows.bat` to automatically set up the environment.
    2. Ensure [FFmpeg](https://ffmpeg.org/download.html) is installed and added to your PATH.
 
+## ✨ New Features & Quick Start
+- **Modern Control Center**: Manage all settings in a dark-themed Dashboard.
+- **One-Click Launch**: Start the overlay translator directly from the Dashboard.
+- **Auto-Dependency Check**: Automatically installs missing requirements.
+- **Audio Device Selection**: Choose your specific microphone input.
+
 ## Usage
 
-### 🚀 Start the App
-**macOS / Linux**:
-Run the installer once:
-```bash
-./install_mac.sh
-```
-Then start the app:
-```bash
-./start_mac.sh
-```
+### 1. Start the Application
+Run the helper script for your OS:
+- **Mac/Linux**: `./start_mac.sh`
+- **Windows**: `start_windows.bat`
 
-**Windows**:
-Double-click `start_windows.bat`
+### 2. The Dashboard
+The application opens the **Real-Time Translator Control Center**.
+- **Home**: Click **"▶ Launch Translator"** to start the overlay.
+- **Audio**: Select your Input Device and adjust Silence Threshold.
+- **Transcription**: Choose Whisper model size (tiny, base, small, medium, large-v3).
+- **Translation**: Set your OpenAI API Key and Target Language.
+- **Save Settings**: Click "Save Settings" to persist your configuration.
 
-*(Or run `python main.py` for a single session)*
+### 3. The Overlay
+Once launched, a transparent window appears:
+- **Move**: Click and drag text to move.
+- **Resize**: Drag the bottom-right handle (◢).
+- **Stop**: Click **"⏹"** on the overlay or "Stop Translator" in the Dashboard.
+- **Save**: Click **"💾 Save"** to export transcript.
 
-### 🎮 Controls
-- **Overlay Window**:
-  - **Drag**: Click and drag anywhere on the window.
-  - **Resize**: Drag the bottom-right corner handles (◢).
-  - **Save (💾)**: Save the current transcript to `transcripts/`.
-  - **Settings (⚙️)**: Open the configuration window.
+## ⚙️ Configuration Reference
+Settings are managed via the Dashboard, but stored in `config.ini`.
 
-### ⚙️ Configuration
-### ⚙️ Configuration Reference (`config.ini`)
+#### `[api]` Section
+| Parameter | Description | Examples |
+| :--- | :--- | :--- |
+| `base_url` | API Endpoint | `https://api.openai.com/v1`, `http://localhost:11434/v1` |
+| `api_key` | Auth Key | `sk-...` (or `dummy` for local) |
+| `target_lang` | Output Language | `Chinese`, `English`, `Japanese` |
 
-#### `[api]` Section (Translation Service)
-| Parameter | Description | Choices / Examples | Impact |
-| :--- | :--- | :--- | :--- |
-| `base_url` | API Endpoint URL | `https://api.openai.com/v1` (OpenAI)<br>`http://localhost:11434/v1` (Ollama)<br>`https://api.siliconflow.cn/v1` | Determines which server handles the translation. Localhost is free but requires hardware. |
-| `api_key` | Authentication Key | `sk-...` | Required for authentication. Use `dummy` for local servers like Ollama. |
-| `model` | LLM for Translation | `gpt-3.5-turbo`, `gpt-4`, `llama3:8b`, `qwen2.5:7b` | **Accuracy vs Speed**. Larger models translate better but may be slower. |
-| `threads` | Concurrent Requests | `1` - `16` (Default `4`) | Number of sentences translated at once. Increase if speaking fast to prevent dropping. |
-| `target_lang` | Output Language | `Chinese`, `English`, `French`, `Japanese` | The language you want to see translated text in. |
+#### `[transcription]` Section
+| Parameter | Description | Details |
+| :--- | :--- | :--- |
+| `whisper_model` | Model Size | `tiny` (fast), `large-v3` (accurate) |
+| `device` | Compute Unit | `auto` (Apple Neural Engine), `cuda` (NVIDIA) |
 
-#### `[transcription]` Section (Speech-to-Text)
-| Parameter | Description | Choices / Examples | Impact |
-| :--- | :--- | :--- | :--- |
-| `whisper_model` | Model Size | `tiny`, `base`, `small`, `medium`, `large-v3`, `turbo` | **Precision vs Speed**. `base`/`small` are fast real-time. `large` is accurate but slow. |
-| `device` | Processing Unit | `auto` (Recommended), `cpu`, `cuda` | `auto` uses Apple Neural Engine (Metal) on Mac. `cpu` is slow. |
-| `compute_type` | Math Precision | `float16` (Mac/GPU), `int8`, `float32` | `float16` is faster on modern hardware. `int8` saves RAM but may lower quality. |
-| `source_language` | Input Audio Language | `auto`, `en`, `zh`, `ja` | `auto` adds a detection delay. Set specific language (e.g., `en`) for faster response. |
-| `transcription_workers`| Parallel Threads | `1` to `4` | Number of simultaneous transcriptions. Higher = smoother for fast speakers, but uses more RAM. |
-
-#### `[audio]` Section (Microphone & Streaming)
-| Parameter | Description | Choices / Examples | Impact |
-| :--- | :--- | :--- | :--- |
-| `device_index` | Input Device ID | `auto` (System Default), `0` , `1`... | ID of your mic or Loopback (BlackHole). Check startup logs for IDs. |
-| `silence_threshold` | Sensitivity | `0.01` (Loud Env) - `0.005` (Quiet Env) | Lower (`0.005`) picks up whispers but also noise. Higher (`0.05`) needs louder speech. |
-| `silence_duration` | VAD Timeout | `0.5` - `2.0` (Seconds) | How long to wait after you stop speaking to "finalize" the sentence. |
-| `max_phrase_duration`| Max Sentence Length | `5` - `600` (Seconds) | Forces a split if you speak too long. **Set higher (30s+)** for lectures to avoid cutting sentences. |
-| `streaming_step_size`| Audio Grain | `0.1` - `0.5` (Seconds) | **Lower (`0.1`)** = smoother "typing" effect but high CPU. **Higher (`0.5`)** = choppier updates. |
-| `update_interval` | UI Refresh Rate | `0.5` - `1.0` (Seconds) | How often the gray "partial" text updates. Should be > `streaming_step_size`. |
-| `streaming_mode` | Continuous Stream | `true` / `false` | `true`: Emits audio constantly (good for fast talkers). `false`: Strict VAD only. |
-| `streaming_interval` | Stream Segment | `1.5` - `3.0` (Seconds) | Only used if `streaming_mode=true`. How often to force a chunk emit. |
-| `streaming_overlap` | Context Overlap | `0.3` (Seconds) | Overlap between chunks to prevent cutting words at boundaries. |
-
-#### `[display]` Section (Appearance)
-| Parameter | Description | Choices / Examples | Impact |
-| :--- | :--- | :--- | :--- |
-| `window_width` | Overlay Width | `800`, `1024` (Pixels) | Width of the transparent window. |
-| `window_height` | Overlay Height | `120`, `200` (Pixels) | Height of the visible text area. |
-| `display_duration`| Persistence | `10` (Seconds) | (Legacy) How long text stays before clearing (if not using scroll history). |
+#### `[audio]` Section
+| Parameter | Description | Details |
+| :--- | :--- | :--- |
+| `silence_threshold`| Sensitivity | `0.005` (Quiet) to `0.05` (Loud) |
+| `device_index` | Mic ID | `auto` or specific index `0`, `1`... |
 
 ## Troubleshooting
 - **No Audio?** Check the terminal for "Audio Capture" logs. If using BlackHole, ensure it's selected in `config.ini` or auto-detected.
