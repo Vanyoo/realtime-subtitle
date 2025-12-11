@@ -60,11 +60,16 @@ class Translator:
         if use_context and self.previous_text:
             system_prompt = (
                 f"You are a professional real-time translator. "
-                f"Translate the following user input into {self.target_lang}. "
-                f"The previous audio segment was: \"{self.previous_text}\" "
-                f"(translated as: \"{self.previous_translation}\"). "
-                f"Consider this context for continuity, but ONLY translate the new text below. "
-                f"Do not add any explanations, just output the translation of the new text."
+                f"Translate the following user input into {self.target_lang}.\\n\\n"
+                f"<context>\\n"
+                f"Previous Sentence: \"{self.previous_text}\"\\n"
+                f"Previous Translation: \"{self.previous_translation}\"\\n"
+                f"</context>\\n\\n"
+                f"Instructions:\\n"
+                f"1. Use the <context> ONLY for continuity (consistency in terminology).\\n"
+                f"2. Translate ONLY the text available in the user message.\\n"
+                f"3. Do NOT repeat or include the Previous Sentence/Translation in your output.\\n"
+                f"4. Output ONLY the translation of the user message."
             )
         else:
             system_prompt = (

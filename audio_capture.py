@@ -88,14 +88,25 @@ class AudioCapture:
         block_size = int(self.sample_rate * self.streaming_step_size)
         print(f"[Audio] Starting raw processing stream (step={self.streaming_step_size}s)")
         
-        with sd.InputStream(device=self.device_index, channels=1, samplerate=self.sample_rate, 
-                            blocksize=block_size, dtype='float32') as stream:
-             self.running = True
-             while self.running:
-                 data, overflow = stream.read(block_size)
-                 if overflow:
-                     print("Audio overflow")
-                 yield data.flatten()
+        try:
+            with sd.InputStream(device=self.device_index, channels=1, samplerate=self.sample_rate, 
+                                blocksize=block_size, dtype='float32') as stream:
+                 self.running = True
+                 while self.running:
+                     data, overflow = stream.read(block_size)
+                     if overflow:
+                         print("Audio overflow")
+                     yield data.flatten()
+        except Exception as e:
+            print(f"\n[ERROR] Audio Device Initialization Failed: {e}")
+            print("Possible causes:")
+            print("1. Terminal/App does not have Microphone Permissions (System Settings > Privacy > Microphone)")
+            print(f"2. Sample rate {self.sample_rate}Hz not supported by device (Try 44100 or 48000)")
+            print("3. Invalid device index in config.ini (Try 'auto' or check 'python audio_capture.py')")
+            self.running = False
+            # Yield silence to prevent immediate crash if running in loop
+            yield np.zeros(block_size, dtype=np.float32)
+            
         print("[Audio] Generator stopped.")
 
     def get_audio_stream(self):

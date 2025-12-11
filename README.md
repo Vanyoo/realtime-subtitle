@@ -83,10 +83,13 @@ Double-click `start_windows.bat`
 | :--- | :--- | :--- | :--- |
 | `device_index` | Input Device ID | `auto` (System Default), `0` , `1`... | ID of your mic or Loopback (BlackHole). Check startup logs for IDs. |
 | `silence_threshold` | Sensitivity | `0.01` (Loud Env) - `0.005` (Quiet Env) | Lower (`0.005`) picks up whispers but also noise. Higher (`0.05`) needs louder speech. |
-| `silence_duration` | VAD Timeout | `0.5` - `2.0` (Seconds) | How long to wait after you stop speaking to "finalize" the sentence. Shorter = snappier, Longer = better context. |
-| `max_phrase_duration`| Max Sentence Length | `3` - `10` (Seconds) | Forces a split if you speak too long without pausing. Prevents infinite delay. |
-| `streaming_step_size`| Audio Grain | `0.1` - `0.5` (Seconds) | **Lower (`0.1`)** = smoother "typing" effect but high CPU. **Higher (`0.5`)** = choppier updates but robust. |
+| `silence_duration` | VAD Timeout | `0.5` - `2.0` (Seconds) | How long to wait after you stop speaking to "finalize" the sentence. |
+| `max_phrase_duration`| Max Sentence Length | `5` - `600` (Seconds) | Forces a split if you speak too long. **Set higher (30s+)** for lectures to avoid cutting sentences. |
+| `streaming_step_size`| Audio Grain | `0.1` - `0.5` (Seconds) | **Lower (`0.1`)** = smoother "typing" effect but high CPU. **Higher (`0.5`)** = choppier updates. |
 | `update_interval` | UI Refresh Rate | `0.5` - `1.0` (Seconds) | How often the gray "partial" text updates. Should be > `streaming_step_size`. |
+| `streaming_mode` | Continuous Stream | `true` / `false` | `true`: Emits audio constantly (good for fast talkers). `false`: Strict VAD only. |
+| `streaming_interval` | Stream Segment | `1.5` - `3.0` (Seconds) | Only used if `streaming_mode=true`. How often to force a chunk emit. |
+| `streaming_overlap` | Context Overlap | `0.3` (Seconds) | Overlap between chunks to prevent cutting words at boundaries. |
 
 #### `[display]` Section (Appearance)
 | Parameter | Description | Choices / Examples | Impact |

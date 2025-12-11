@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QLineEdit, QHBoxLayout,
-                             QFormLayout, QPushButton, QComboBox, QDoubleSpinBox, QMessageBox)
+                             QFormLayout, QPushButton, QComboBox, QDoubleSpinBox, QMessageBox, QSpinBox)
 from PyQt6.QtCore import Qt
 import configparser
 import os
@@ -65,6 +65,22 @@ class SettingsWindow(QWidget):
         self.step_size_input.setSingleStep(0.1)
         self.step_size_input.setValue(config.streaming_step_size)
         form_layout.addRow("Stream Step (s):", self.step_size_input)
+        
+        # Silence Duration (VAD)
+        self.silence_dur_input = QDoubleSpinBox()
+        self.silence_dur_input.setRange(0.2, 5.0)
+        self.silence_dur_input.setSingleStep(0.1)
+        self.silence_dur_input.setValue(config.silence_duration)
+        self.silence_dur_input.setSuffix(" s")
+        form_layout.addRow("Silence VAD (s):", self.silence_dur_input)
+
+        # Max Phrase Duration
+        self.max_phrase_input = QSpinBox()
+        self.max_phrase_input.setRange(5, 600) # 5s to 10m
+        self.max_phrase_input.setSingleStep(5)
+        self.max_phrase_input.setValue(int(config.max_phrase_duration))
+        self.max_phrase_input.setSuffix(" s")
+        form_layout.addRow("Max Phrase (s):", self.max_phrase_input)
         
         layout.addLayout(form_layout)
         
@@ -158,6 +174,8 @@ class SettingsWindow(QWidget):
         parser.set("translation", "model", self.model_input.currentText())
         parser.set("transcription", "whisper_model", self.whisper_input.currentText())
         parser.set("audio", "streaming_step_size", str(self.step_size_input.value()))
+        parser.set("audio", "max_phrase_duration", str(self.max_phrase_input.value()))
+        parser.set("audio", "silence_duration", str(self.silence_dur_input.value()))
         
         try:
             with open(config_path, 'w') as f:

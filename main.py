@@ -65,7 +65,7 @@ class Pipeline(QObject):
 
     def start(self):
         """Start the processing pipeline in a dedicated thread"""
-        self.audio.start()
+        # self.audio.start() # DISABLE: Generator manages its own stream. calling this causes double-stream error on macOS
         self.thread = threading.Thread(target=self.processing_loop)
         self.thread.daemon = True
         self.thread.start()
@@ -144,15 +144,25 @@ class Pipeline(QObject):
                     rms = np.sqrt(np.mean(tail**2))
                     if rms < self.audio.silence_threshold:
                         is_silence = True
+                        
+                # Dynamic VAD Logic
+                # 1. Standard: > 2.0s duration AND > 1.0s silence (Configured)
+                standard_cut = (is_silence and buffer_duration > 2.0)
                 
-                # DECISION: Finalize vs Partial Update
-                
-                # 1. Finalize if: (Long enough AND silence) OR Max duration reached
-                # Require at least 2.0s duration if using silence test (prevent chopping short phrases)
-                should_finalize = (
-                    (is_silence and buffer_duration > 2.0) or 
-                    (buffer_duration > self.audio.max_phrase_duration)
-                )
+                # 2. Soft Limit: > 6.0s duration AND > 0.4s silence (Catch brief pauses to avoid huge latency)
+                soft_limit_cut = False
+                if buffer_duration > 6.0:
+                    # Check shorter silence tail (0.4s)
+                    short_tail_samps = int(self.audio.sample_rate * 0.4)
+                    if len(buffer) > short_tail_samps:
+                        t_rms = np.sqrt(np.mean(buffer[-short_tail_samps:]**2))
+                        if t_rms < self.audio.silence_threshold:
+                            soft_limit_cut = True
+                            
+                # 3. Hard Limit: > max_phrase_duration (Force cut)
+                hard_limit_cut = (buffer_duration > self.audio.max_phrase_duration)
+
+                should_finalize = standard_cut or soft_limit_cut or hard_limit_cut
                 
                 if should_finalize and buffer_duration > 0.5:
                     # FINALIZE
