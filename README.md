@@ -8,7 +8,7 @@ A high-performance real-time speech-to-text and translation application built fo
 - **🔄 Async Translation**: Translates text to Chinese (or target language) in the background without blocking the UI.
 - **🖥️ Overlay UI**: Always-on-top, transparent, click-through window for seamless usage during meetings/videos.
 - **⚙️ Hot Reloading**: Change code or config and the app restarts automatically.
-- **💾 Transcript Saving**: One-click save of your session history.
+- **💾 Transcript Saving**: One-click save of your session history. Can be used as subtitle or LLM analyze.
 
 ## Demo
 https://github.com/Vanyoo/realtime-subtitle/raw/refs/heads/master/demo/demo%20screenshot.mp4
@@ -34,6 +34,9 @@ https://github.com/Vanyoo/realtime-subtitle/raw/refs/heads/master/demo/demo%20sc
    **🪟 Windows Users**:
    1. Double-click `install_windows.bat` to automatically set up the environment.
    2. Ensure [FFmpeg](https://ffmpeg.org/download.html) is installed and added to your PATH.
+
+   **🖥 MacOS Users**:
+   1. Use terminal to run `install_mac.sh`
 
 ## ✨ New Features & Quick Start
 - **Modern Control Center**: Manage all settings in a dark-themed Dashboard.
