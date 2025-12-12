@@ -21,7 +21,7 @@ https://github.com/Vanyoo/realtime-subtitle/raw/refs/heads/master/demo/demo%20sc
    - Python 3.10+
    - macOS (recommended for `mlx-whisper` support)
    - `ffmpeg` installed (e.g., `brew install ffmpeg`)
-   - `BlackHole` installed (e.g., `brew install blackhole`)
+   - `BlackHole` installed (e.g., `brew install blackhole-2ch`, need to enter system password)
    - `BlackHole` Settings![BlackHole Settings](demo/how_to_set_blackhole.png)
 
 2. **Install Dependencies**:
@@ -55,7 +55,25 @@ Run the helper script for your OS:
 The application opens the **Real-Time Translator Control Center**.
 - **Home**: Click **"▶ Launch Translator"** to start the overlay.
 - **Audio**: Select your Input Device and adjust Silence Threshold.
-- **Transcription**: Choose Whisper model size (tiny, base, small, medium, large-v3).
+  * <details>
+     <summary>How to Set</summary>
+     1. Audio MIDI Setup: create multiple devices, including `BlackHole 2ch` device, and if you want to listen too, remember adding system output device
+
+     ![](./demo/Audio_MIDI_Setup.png)
+
+     2. Choose target audio device to capture
+
+     ![](./demo/Audio_configuraiton.png)
+   </details>
+- **Transcription**: Choose Whisper model size (tiny, base, small, medium, large-v3, [see the difference](https://github.com/openai/whisper?tab=readme-ov-file#available-models-and-languages)).
+  * <details>
+     <summary>How to Set</summary>
+     
+     * MacOS
+       * Whisper Model: base
+       * Compute Device: audo
+       * Quantization: float16
+   </details>
 - **Translation**: Set your OpenAI API Key and Target Language.
 - **Save Settings**: Click "Save Settings" to persist your configuration.
 
