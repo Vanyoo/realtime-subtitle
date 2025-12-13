@@ -125,8 +125,22 @@ class Transcriber:
             result = mlx_whisper.transcribe(audio_data, **kwargs)
             return result.get("text", "").strip()
         except Exception as e:
-            print(f"[Transcriber] MLX Error: {e}")
-            return ""
+            error_msg = str(e)
+            # Handle unsupported language error gracefully
+            if "Unsupported language" in error_msg and self.language:
+                print(f"[Transcriber] Language '{self.language}' not supported, falling back to auto-detection")
+                self.language = None  # Switch to auto-detect
+                # Retry with auto-detection
+                try:
+                    kwargs["language"] = None
+                    result = mlx_whisper.transcribe(audio_data, **kwargs)
+                    return result.get("text", "").strip()
+                except Exception as retry_error:
+                    print(f"[Transcriber] MLX Error on retry: {retry_error}")
+                    return ""
+            else:
+                print(f"[Transcriber] MLX Error: {e}")
+                return ""
 
     def _transcribe_faster_whisper(self, audio_data, prompt=None):
         segments, _ = self.model.transcribe(

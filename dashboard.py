@@ -489,6 +489,64 @@ class Dashboard(QWidget):
             self.device_status.setText(f"❌ Error: {str(e)}")
             self.device_status.setStyleSheet("color: #f38ba8;")
 
+    def refresh_model_list(self):
+        """Fetch available models from the API and populate the model dropdown"""
+        try:
+            from openai import OpenAI
+            import httpx
+            
+            api_key = self.api_key.text() or "dummy-key-for-local"
+            base_url = self.base_url.text() or None
+            
+            # Update button state
+            self.refresh_models_btn.setEnabled(False)
+            self.refresh_models_btn.setText("...")
+            
+            # Create client with SSL verification disabled
+            http_client = httpx.Client(verify=False)
+            client = OpenAI(api_key=api_key, base_url=base_url, http_client=http_client)
+            
+            # Fetch models
+            models_response = client.models.list()
+            model_ids = [model.id for model in models_response.data]
+            
+            # Update combo box
+            current_model = self.model.currentText()
+            self.model.clear()
+            
+            if model_ids:
+                self.model.addItems(sorted(model_ids))
+                # Try to restore previous selection
+                index = self.model.findText(current_model)
+                if index >= 0:
+                    self.model.setCurrentIndex(index)
+                    
+                # Show success in status label if we're on the home tab
+                if hasattr(self, 'status_label'):
+                    self.status_label.setText(f"✅ Loaded {len(model_ids)} models")
+                    self.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
+            else:
+                self.model.addItem(current_model)
+                if hasattr(self, 'status_label'):
+                    self.status_label.setText("⚠️ No models found")
+                    self.status_label.setStyleSheet("font-size: 18px; color: #fab387;")
+            
+        except Exception as e:
+            # Restore original model on error
+            if not self.model.currentText():
+                self.model.addItem(config.model)
+            
+            error_msg = str(e)
+            if hasattr(self, 'status_label'):
+                self.status_label.setText(f"❌ Failed to fetch models: {error_msg[:50]}")
+                self.status_label.setStyleSheet("font-size: 18px; color: #f38ba8;")
+            print(f"[Dashboard] Model refresh error: {error_msg}")
+        
+        finally:
+            # Restore button state
+            self.refresh_models_btn.setEnabled(True)
+            self.refresh_models_btn.setText("🔄")
+
     def init_transcription_tab(self):
         tab = QWidget()
         layout = QFormLayout()
@@ -508,6 +566,14 @@ class Dashboard(QWidget):
         self.compute_type.setCurrentText(config.whisper_compute_type)
         layout.addRow("Quantization:", self.compute_type)
         
+        # Source Language Configuration
+        self.source_language = QComboBox()
+        self.source_language.setEditable(True)
+        self.source_language.addItems(["auto", "en", "zh", "vi", "ja", "ko", "es", "fr", "de", "ru", "ar", "pt", "it"])
+        source_lang = config.source_language if config.source_language else "auto"
+        self.source_language.setCurrentText(source_lang)
+        layout.addRow("Source Language:", self.source_language)
+        
         tab.setLayout(layout)
         self.tabs.addTab(tab, "📝 Transcription")
 
@@ -524,10 +590,20 @@ class Dashboard(QWidget):
         self.base_url.setPlaceholderText("https://api.openai.com/v1")
         layout.addRow("Base URL:", self.base_url)
         
+        # Model selection with refresh button
+        model_layout = QHBoxLayout()
         self.model = QComboBox()
         self.model.setEditable(True)
         self.model.addItem(config.model)
-        layout.addRow("Model:", self.model)
+        model_layout.addWidget(self.model)
+        
+        self.refresh_models_btn = QPushButton("🔄")
+        self.refresh_models_btn.setFixedWidth(40)
+        self.refresh_models_btn.setToolTip("Refresh model list from API")
+        self.refresh_models_btn.clicked.connect(self.refresh_model_list)
+        model_layout.addWidget(self.refresh_models_btn)
+        
+        layout.addRow("Model:", model_layout)
         
         self.target_lang = QComboBox()
         self.target_lang.addItems(["Chinese", "English", "Japanese", "French", "Spanish", "German", "Korean"])
@@ -584,6 +660,7 @@ class Dashboard(QWidget):
         cp.set("transcription", "whisper_model", self.whisper_model.currentText())
         cp.set("transcription", "device", self.device_type.currentText())
         cp.set("transcription", "compute_type", self.compute_type.currentText())
+        cp.set("transcription", "source_language", self.source_language.currentText())
         
         # Translation
         cp.set("api", "api_key", self.api_key.text())
