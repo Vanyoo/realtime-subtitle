@@ -15,9 +15,11 @@ from transcriber import Transcriber
 from translator import Translator
 from overlay_window import OverlayWindow
 from config import config
+from diarizer import Diarizer
 
 class WorkerSignals(QObject):
-    update_text = pyqtSignal(int, str, str)  # (chunk_id, original, translated)
+    update_text = pyqtSignal(int, str, str, str)  # (chunk_id, original, translated, speaker)
+    update_speaker = pyqtSignal(int, str)  # (chunk_id, speaker) - for async speaker updates
 
 class Pipeline(QObject):
     def __init__(self):
@@ -68,8 +70,24 @@ class Pipeline(QObject):
             model=config.model
         )
         
+        # Initialize Diarizer if enabled
+        if config.enable_diarization:
+            print(f"[Pipeline] Initializing Diarizer (speaker diarization enabled)...")
+            self.diarizer = Diarizer(
+                sample_rate=config.sample_rate,
+                enable_diarization=True
+            )
+        else:
+            print("[Pipeline] Speaker diarization disabled")
+            self.diarizer = None
+        
+        # Audio buffer queue for diarization (shared between transcriber and diarizer)
+        self.diarization_queue = queue.Queue(maxsize=100) if self.diarizer else None
+        
         # Warmup Transcriber (Critical for MLX/GPU)
+        print(f"[Pipeline] DEBUG: About to warmup Transcriber...")
         self.transcriber.warmup()
+        print(f"[Pipeline] DEBUG: Transcriber warmup complete")
 
     def start(self):
         """Start the processing pipeline in a dedicated thread"""
@@ -77,6 +95,13 @@ class Pipeline(QObject):
         self.thread = threading.Thread(target=self.processing_loop)
         self.thread.daemon = True
         self.thread.start()
+        
+        # Start independent diarization thread if enabled
+        if self.diarizer:
+            self.diarization_thread = threading.Thread(target=self._diarization_loop)
+            self.diarization_thread.daemon = True
+            self.diarization_thread.start()
+            print("[Pipeline] Diarization thread started")
 
     def stop(self):
         print("\n[Pipeline] Stopping...")
@@ -223,45 +248,86 @@ class Pipeline(QObject):
             translate_executor.shutdown(wait=False)
 
     def _process_partial_chunk(self, audio_data, chunk_id, prompt=""):
-        """Transcribe and update UI (No translation)"""
+        """Transcribe and update UI (No translation) - FAST, non-blocking"""
         try:
             # Use accumulated context as prompt
             text = self.transcriber.transcribe(audio_data, prompt=prompt)
             if text:
-                self.signals.update_text.emit(chunk_id, text, "")
+                # Emit transcription immediately, speaker will be updated async
+                self.signals.update_text.emit(chunk_id, text, "", "")
+                
+                # Queue audio for async diarization (non-blocking)
+                if self.diarization_queue:
+                    try:
+                        self.diarization_queue.put_nowait((chunk_id, audio_data.copy()))
+                    except queue.Full:
+                        print(f"[Diarization] Queue full, skipping chunk {chunk_id}")
         except Exception as e:
             print(f"[Partial {chunk_id}] Error: {e}")
 
     def _process_final_chunk(self, audio_data, chunk_id, prompt="", translate_executor=None):
-        """Transcribe, Log, and Trigger Translation Async"""
+        """Transcribe, Log, and Trigger Translation Async - INDEPENDENT operations"""
         try:
+            # Step 1: Transcribe (blocking, but only for this chunk)
             text = self.transcriber.transcribe(audio_data, prompt=prompt)
             if text:
                 print(f"[Final {chunk_id}] Transcribed: {text}")
+                
                 # Save for context (only if meaningful)
                 if len(text.split()) > 2:
                     self.last_final_text = text
                 
-                # Emit final transcription first (confirms text)
-                self.signals.update_text.emit(chunk_id, text, "(translating...)")
+                # Step 2: Emit transcription immediately (don't wait for anything)
+                self.signals.update_text.emit(chunk_id, text, "(translating...)", "")
                 
-                # Offload translation to separate thread so we don't block next transcription
+                # Step 3: Queue for async translation (non-blocking)
                 if translate_executor:
                     translate_executor.submit(self._run_translation, text, chunk_id)
-            else:
-                pass
+                
+                # Step 4: Queue for async diarization (non-blocking)
+                if self.diarization_queue:
+                    try:
+                        self.diarization_queue.put_nowait((chunk_id, audio_data.copy()))
+                    except queue.Full:
+                        print(f"[Diarization] Queue full, skipping chunk {chunk_id}")
         except Exception as e:
             print(f"[Final {chunk_id}] Error: {e}")
 
     def _run_translation(self, text, chunk_id):
-        """Run translation in background and emit result"""
+        """Run translation in background and emit result - independent from diarization"""
         try:
             translated = self.translator.translate(text)
             print(f"[Final {chunk_id}] Translated: {translated}")
-            self.signals.update_text.emit(chunk_id, text, translated)
+            # Emit translation, speaker will be updated separately by diarization thread
+            self.signals.update_text.emit(chunk_id, text, translated, "")
         except Exception as e:
             print(f"[Translation {chunk_id}] Failed: {e}")
-            self.signals.update_text.emit(chunk_id, text, "[Translation Failed]")
+            self.signals.update_text.emit(chunk_id, text, "[Translation Failed]", "")
+    
+    def _diarization_loop(self):
+        """Independent diarization thread - processes audio chunks asynchronously"""
+        print("[Diarization] Loop started")
+        
+        while self.running:
+            try:
+                # Get audio chunk from queue (blocking with timeout)
+                chunk_id, audio_data = self.diarization_queue.get(timeout=0.5)
+                
+                # Process diarization (this can be slow, doesn't block transcription)
+                speaker = self.diarizer.process_audio_chunk(audio_data, chunk_id)
+                
+                if speaker:
+                    print(f"[Diarization] Chunk {chunk_id}: {speaker}")
+                    # Emit speaker update signal
+                    self.signals.update_speaker.emit(chunk_id, speaker)
+                
+            except queue.Empty:
+                # No chunks to process, continue waiting
+                continue
+            except Exception as e:
+                print(f"[Diarization] Error: {e}")
+        
+        print("[Diarization] Loop stopped")
     
     def _transcribe_chunk(self, transcriber, audio_chunk, chunk_id):
         """Transcribe a single chunk and log timing"""
@@ -304,6 +370,7 @@ def start_overlay_session():
     
     # Connect signals
     _pipeline.signals.update_text.connect(window.update_text)
+    _pipeline.signals.update_speaker.connect(window.update_speaker_only)
     
     # Start pipeline
     _pipeline.start()

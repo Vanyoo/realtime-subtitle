@@ -16,7 +16,7 @@ except ImportError:
 
 class LogItem(QFrame):
     """A widget representing a single chunk of transcription/translation"""
-    def __init__(self, chunk_id, timestamp, original_text, translated_text=""):
+    def __init__(self, chunk_id, timestamp, original_text, translated_text="", speaker=""):
         super().__init__()
         self.chunk_id = chunk_id
         
@@ -26,6 +26,15 @@ class LogItem(QFrame):
         self.layout.setContentsMargins(0, 0, 0, 15) # Bottom margin
         self.layout.setSpacing(2)
         self.setLayout(self.layout)
+        
+        # Speaker label (if available)
+        if speaker:
+            self.speaker_label = QLabel(f"🎤 {speaker}")
+            self.speaker_label.setWordWrap(True)
+            self.speaker_label.setStyleSheet("color: #89b4fa; font-family: Arial; font-size: 12px; font-weight: bold;")
+            self.layout.addWidget(self.speaker_label)
+        else:
+            self.speaker_label = None
         
         # Original Text Label
         self.original_label = QLabel(f"[{timestamp}] {original_text}")
@@ -44,6 +53,21 @@ class LogItem(QFrame):
 
     def update_original(self, text):
         self.original_label.setText(f"[{time.strftime('%H:%M:%S')}] {text}")
+    
+    def update_speaker(self, speaker):
+        """Update speaker label with visual feedback"""
+        if speaker and not self.speaker_label:
+            # Create speaker label if it doesn't exist
+            self.speaker_label = QLabel(f"🎤 {speaker}")
+            self.speaker_label.setWordWrap(True)
+            self.speaker_label.setStyleSheet("color: #89b4fa; font-family: Arial; font-size: 12px; font-weight: bold;")
+            self.layout.insertWidget(0, self.speaker_label)  # Insert at top
+        elif speaker and self.speaker_label:
+            # Update existing speaker label with color change animation
+            self.speaker_label.setText(f"🎤 {speaker}")
+            # Flash the speaker label to show it updated
+            self.speaker_label.setStyleSheet("color: #a6e3a1; font-family: Arial; font-size: 12px; font-weight: bold;")  # Green flash
+            QTimer.singleShot(500, lambda: self.speaker_label.setStyleSheet("color: #89b4fa; font-family: Arial; font-size: 12px; font-weight: bold;"))  # Back to blue
 
 class OverlayWindow(QWidget):
     def __init__(self, display_duration=None, window_width=400, window_height=None):
@@ -254,7 +278,7 @@ class OverlayWindow(QWidget):
         self.items = [] # Sorted by chunk_id
         
         # History for saving (list of dicts)
-        self.transcript_data = {} # chunk_id -> {timestamp, original, translated}
+        self.transcript_data = {} # chunk_id -> {timestamp, original, translated, speaker}
         
         # State
         self.is_moving = False
@@ -262,20 +286,25 @@ class OverlayWindow(QWidget):
         # Enable mouse tracking for cursor update without click
         self.setMouseTracking(True)
 
-    def update_text(self, chunk_id, original_text, translated_text):
+    def update_text(self, chunk_id, original_text, translated_text, speaker=""):
         """Append new text or update existing text"""
-        print(f"[Overlay] Received update for #{chunk_id}: {original_text} -> {translated_text}")
+        print(f"[Overlay] Received update for #{chunk_id}: {original_text} -> {translated_text} (Speaker: {speaker})")
         
         # Update data store
         if chunk_id not in self.transcript_data:
             self.transcript_data[chunk_id] = {
                 'timestamp': time.strftime("%H:%M:%S"),
                 'original': original_text,
-                'translated': translated_text
+                'translated': translated_text,
+                'speaker': speaker
             }
         else:
+            if original_text:
+                self.transcript_data[chunk_id]['original'] = original_text
             if translated_text:
                 self.transcript_data[chunk_id]['translated'] = translated_text
+            if speaker:
+                self.transcript_data[chunk_id]['speaker'] = speaker
         
         # Check if widget exists
         existing_widget = None
@@ -291,12 +320,15 @@ class OverlayWindow(QWidget):
             
             if translated_text:
                 existing_widget.update_translated(translated_text)
+            
+            if speaker:
+                existing_widget.update_speaker(speaker)
                 
             print(f"[Overlay] Updated existing widget #{chunk_id}")
         else:
             # Insert new widget in order
             timestamp = self.transcript_data[chunk_id]['timestamp']
-            new_widget = LogItem(chunk_id, timestamp, original_text, translated_text)
+            new_widget = LogItem(chunk_id, timestamp, original_text, translated_text, speaker)
             
             # Find insertion point
             insert_idx = len(self.items)
@@ -311,6 +343,29 @@ class OverlayWindow(QWidget):
             
             # Scroll to bottom
             QTimer.singleShot(10, self._scroll_to_bottom)
+    
+    def update_speaker_only(self, chunk_id, speaker):
+        """Update only speaker information for a chunk (async diarization result)"""
+        print(f"[Overlay] Async speaker update for #{chunk_id}: {speaker}")
+        
+        # Update data store
+        if chunk_id in self.transcript_data:
+            self.transcript_data[chunk_id]['speaker'] = speaker
+        else:
+            # Chunk doesn't exist yet, create placeholder
+            self.transcript_data[chunk_id] = {
+                'timestamp': time.strftime("%H:%M:%S"),
+                'original': '',
+                'translated': '',
+                'speaker': speaker
+            }
+        
+        # Update widget if it exists
+        for cid, widget in self.items:
+            if cid == chunk_id:
+                widget.update_speaker(speaker)
+                print(f"[Overlay] Updated speaker for widget #{chunk_id}")
+                break
 
     def _scroll_to_bottom(self):
         sb = self.scroll_area.verticalScrollBar()
@@ -335,7 +390,8 @@ class OverlayWindow(QWidget):
                 f.write("="*50 + "\n\n")
                 for cid in sorted_ids:
                     data = self.transcript_data[cid]
-                    f.write(f"[{data['timestamp']}] (ID: {cid})\nOriginal: {data['original']}\nTranslation: {data['translated']}\n{'-'*30}\n")
+                    speaker_info = f" ({data.get('speaker', '')})" if data.get('speaker') else ""
+                    f.write(f"[{data['timestamp']}]{speaker_info} (ID: {cid})\nOriginal: {data['original']}\nTranslation: {data['translated']}\n{'-'*30}\n")
             
             print(f"[Overlay] Saved to {filename}")
             # Visual feedback on button
@@ -373,8 +429,8 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = OverlayWindow()
     window.show()
-    # Test update
-    window.update_text(1, "Hello world", "")
-    QTimer.singleShot(1000, lambda: window.update_text(1, "Hello world", "你好，世界"))
-    window.update_text(2, "Sequence test", "")
+    # Test update with speaker
+    window.update_text(1, "Hello world", "", "Speaker 1")
+    QTimer.singleShot(1000, lambda: window.update_text(1, "Hello world", "你好，世界", "Speaker 1"))
+    window.update_text(2, "Sequence test", "", "Speaker 2")
     sys.exit(app.exec())

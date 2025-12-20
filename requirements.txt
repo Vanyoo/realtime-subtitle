@@ -7,3 +7,9 @@ pyobjc-framework-CoreAudio; sys_platform == 'darwin'
 funasr
 modelscope
 watchdog
+# Diarization support (optional) - requires compatible PyTorch versions
+# diart requires torch<2.1.0 and torchaudio<2.1.0 due to AudioMetaData removal
+# Uncomment and install manually if needed:
+torch==2.0.1
+torchaudio==2.0.2
+diart==0.9.2

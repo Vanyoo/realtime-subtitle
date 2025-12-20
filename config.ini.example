@@ -34,3 +34,8 @@ streaming_step_size = 0.2
 update_interval = 0.8
 streaming_overlap = 0.3
 
+[diarization]
+# Enable speaker diarization (requires diart library)
+enable_diarization = false
+step = 0.5
+latency = 0.5

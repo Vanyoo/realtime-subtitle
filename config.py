@@ -38,6 +38,11 @@ class Config:
             self.source_language = None  # Whisper uses None for auto-detect
         self.transcription_workers = self._getint("transcription", "transcription_workers", 2)
         
+        # Diarization settings
+        self.enable_diarization = self._get("diarization", "enable_diarization", "false").lower() == "true"
+        self.diarization_step = self._getfloat("diarization", "step", 0.5)
+        self.diarization_latency = self._getfloat("diarization", "latency", 0.5)
+        
         # Audio settings
         self.sample_rate = self._getint("audio", "sample_rate", 16000)
         self.silence_threshold = self._getfloat("audio", "silence_threshold", 0.01)
@@ -113,6 +118,7 @@ class Config:
         print(f"  Whisper Model: {self.whisper_model}")
         print(f"  FunASR Model: {self.funasr_model}")
         print(f"  Sample Rate: {self.sample_rate}")
+        print(f"  Diarization Enabled: {self.enable_diarization}")
 
 # Global config instance
 config = Config()
